@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>tornado WebSocket example</title>
+    <link href="//netdna.bootstrapcdn.com/twitter-bootstrap/2.3.1/css/bootstrap-combined.no-icons.min.css"
+          rel="stylesheet">
+    <script type="text/javascript" src="http://g.alicdn.com/ilw/cdnjs/jquery/1.8.3/jquery.min.js"></script>
+</head>
+<body>
+<div class="container">
+    <h1>tornado WebSocket example</h1>
+    <hr>
+    WebSocket status : <span id="message"></span>
+    <hr>
+    <h3>以下表格的内容通过Websocket进行更新</h3>
+
+    <div class="row">
+        <div class="span4">
+            <table class="table table-striped table-bordered table-condensed">
+                <tr>
+                    <th>今日支付订单数</th>
+                </tr>
+                <tr>
+                    <td id="order_cnt">25</td>
+                </tr>
+            </table>
+        </div>
+        <div class="span4">
+            <table class="table table-striped table-bordered table-condensed">
+                <tr>
+                    <th>今日订单支付金额</th>
+                </tr>
+                <tr>
+                    <td id="order_amount">250</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <hr>
+    <h3>REST API示例</h3>
+    <ol>
+        <li>id为1的订单支付成功，支付金额101
+            <ul>
+                <li>curl "http://localhost:8888/order_center/order/alipay/callback?id=1&value=101"</li>
+            </ul>
+        </li>
+        <li>id为2的订单支付成功，支付金额300
+            <ul>
+                <li>curl "http://localhost:8888/order_center/order/alipay/callback?id=2&value=300"</li>
+            </ul>
+        </li>
+    </ol>
+    <img src="architecture.png"/>
+</div>
+<script>
+    var host = window.location.host;
+    var ws = new WebSocket('ws://' + host + '/ws');
+    var $message = $('#message');
+
+    ws.onopen = function () {
+        $message.attr("class", 'label label-success');
+        $message.text('open');
+    };
+    ws.onmessage = function (ev) {
+        $message.attr("class", 'label label-info');
+        $message.hide();
+        $message.fadeIn("slow");
+        $message.text('recieved message');
+
+        var json = JSON.parse(ev.data);
+
+        var order_cnt = $('#order_cnt');
+        order_cnt.hide();
+        order_cnt.fadeIn("slow");
+        order_cnt.text(json.cnt);
+
+        var order_amount = $('#order_amount');
+        order_amount.hide();
+        order_amount.fadeIn("slow");
+        order_amount.text(json.amount);
+    };
+    ws.onclose = function (ev) {
+        $message.attr("class", 'label label-important');
+        $message.text('closed');
+    };
+    ws.onerror = function (ev) {
+        $message.attr("class", 'label label-warning');
+        $message.text('error occurred');
+    };
+
+</script>
+</body>
+</html>
