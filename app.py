@@ -1,5 +1,7 @@
 import json
+import threading
 
+import redis
 from sqlalchemy import create_engine, func, Column, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -24,8 +26,8 @@ Session = sessionmaker()
 Session.configure(bind=engine)
 session = Session()
 
-# 报表系统所有链接ws的客户端
-rpt_ws_cl = []
+REDIS_URI = "redis://localhost/"
+ORDER_CHANNEL = "order_pay"
 
 
 class IndexHandler(web.RequestHandler):
@@ -40,20 +42,23 @@ class IndexHandler(web.RequestHandler):
 
 class SocketHandler(websocket.WebSocketHandler):
     """报表系统websocket连接"""
+    redis_cli = redis.StrictRedis.from_url(REDIS_URI)
+    # 报表系统所有链接ws的客户端
+    _rpt_ws_cl = []
+    _latest_msg = json.dumps({"cnt": 0, "amount": 0})
 
     def check_origin(self, origin):
         return True
 
     def open(self):
         # 查询今日订单
-        if self not in rpt_ws_cl:
-            rpt_ws_cl.append(self)
-            self.write_message(json.dumps({"cnt": session.query(Order).count(),
-                                           "amount": session.query(func.sum(Order.amount)).scalar()}))
+        if self not in self._rpt_ws_cl:
+            self._rpt_ws_cl.append(self)
+            self.write_message(self._latest_msg)
 
     def on_close(self):
-        if self in rpt_ws_cl:
-            rpt_ws_cl.remove(self)
+        if self in self._rpt_ws_cl:
+            self._rpt_ws_cl.remove(self)
 
     def on_message(self, message):
         pass
@@ -61,9 +66,21 @@ class SocketHandler(websocket.WebSocketHandler):
     def data_received(self, chunk):
         pass
 
+    # 报表系统订阅Redis信息
+    @classmethod
+    def redis_listener(cls):
+        ps = cls.redis_cli.pubsub()
+        ps.subscribe(ORDER_CHANNEL)
+        for msg in ps.listen():
+            if msg["type"] == "message":
+                cls._latest_msg = msg["data"]
+                for c in cls._rpt_ws_cl:
+                    c.write_message(msg["data"])
+
 
 class ApiHandler(web.RequestHandler):
     """订单中心支付宝支付成功回调接口"""
+    redis_cli = redis.StrictRedis.from_url(REDIS_URI)
 
     @web.asynchronous
     def get(self, *args):
@@ -84,10 +101,9 @@ class ApiHandler(web.RequestHandler):
         self.finish()
         # 请求完成后，异步通过ws发送消息到客户端
         if new_order_flag:
+            # 这里更常见的做法是，只发送增量数据，由消息订阅方自行聚合
             data = {"cnt": session.query(Order).count(), "amount": session.query(func.sum(Order.amount)).scalar()}
-            data = json.dumps(data)
-            for c in rpt_ws_cl:
-                c.write_message(data)
+            self.redis_cli.publish(ORDER_CHANNEL, json.dumps(data))
 
     @web.asynchronous
     def post(self):
@@ -106,5 +122,6 @@ app = web.Application([
 ])
 
 if __name__ == '__main__':
+    threading.Thread(target=SocketHandler.redis_listener).start()
     app.listen(8888)
     ioloop.IOLoop.instance().start()
