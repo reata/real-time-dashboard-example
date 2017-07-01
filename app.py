@@ -30,14 +30,25 @@ REDIS_URI = "redis://localhost/"
 ORDER_CHANNEL = "order_pay"
 
 
-class IndexHandler(web.RequestHandler):
+class BaseHandler(web.RequestHandler):
+    """Handler基类，用来模拟网关"""
+    redis_cli = redis.StrictRedis.from_url(REDIS_URI)
+
+    def data_received(self, chunk):
+        pass
+
+    def on_finish(self):
+        # 假装这里不是根据订单的逻辑来构造消息，而是直接发送请求和响应的原始数据到Kafka（假装是Kafka）
+        data = {"cnt": session.query(Order).count(), "amount": session.query(func.sum(Order.amount)).scalar()}
+        self.redis_cli.publish(ORDER_CHANNEL, json.dumps(data))
+        print(self.request)
+
+
+class IndexHandler(BaseHandler):
     """报表系统首页"""
 
     def get(self):
         self.render("index.html")
-
-    def data_received(self, chunk):
-        pass
 
 
 class SocketHandler(websocket.WebSocketHandler):
@@ -78,7 +89,7 @@ class SocketHandler(websocket.WebSocketHandler):
                     c.write_message(msg["data"])
 
 
-class ApiHandler(web.RequestHandler):
+class ApiHandler(BaseHandler):
     """订单中心支付宝支付成功回调接口"""
     redis_cli = redis.StrictRedis.from_url(REDIS_URI)
 
@@ -88,7 +99,6 @@ class ApiHandler(web.RequestHandler):
         order_id = int(self.get_argument("id"))
         order_amount = int(self.get_argument("amount"))
 
-        new_order_flag = False
         if session.query(Order.id).filter_by(id=order_id).scalar():
             # 支付成功重复回调的情况，严谨起见还应该处理回调信息不一致的情况
             print("重复回调")
@@ -97,19 +107,10 @@ class ApiHandler(web.RequestHandler):
             # 增加订单记录；现实世界中，这里通常是改变订单的状态
             session.add(Order(id=order_id, amount=order_amount))
             session.commit()
-            new_order_flag = True
         self.finish()
-        # 请求完成后，异步发送消息到消息队列
-        if new_order_flag:
-            # 假装这里没有查询数据库，而是直接发送增量数据到Kafka
-            data = {"cnt": session.query(Order).count(), "amount": session.query(func.sum(Order.amount)).scalar()}
-            self.redis_cli.publish(ORDER_CHANNEL, json.dumps(data))
 
     @web.asynchronous
     def post(self):
-        pass
-
-    def data_received(self, chunk):
         pass
 
 
