@@ -99,7 +99,7 @@ class ApiHandler(web.RequestHandler):
             session.commit()
             new_order_flag = True
         self.finish()
-        # 请求完成后，异步通过ws发送消息到客户端
+        # 请求完成后，异步发送消息到Redis
         if new_order_flag:
             # 这里更常见的做法是，只发送增量数据，由消息订阅方自行聚合
             data = {"cnt": session.query(Order).count(), "amount": session.query(func.sum(Order.amount)).scalar()}
