@@ -66,7 +66,7 @@ class SocketHandler(websocket.WebSocketHandler):
     def data_received(self, chunk):
         pass
 
-    # 报表系统订阅Redis信息
+    # 报表系统依然订阅Redis信息，但是Redis中的消息，假装是由Spark Streaming实时聚合Kafka中的消息后，发布到Redis的
     @classmethod
     def redis_listener(cls):
         ps = cls.redis_cli.pubsub()
@@ -99,9 +99,9 @@ class ApiHandler(web.RequestHandler):
             session.commit()
             new_order_flag = True
         self.finish()
-        # 请求完成后，异步发送消息到Redis
+        # 请求完成后，异步发送消息到消息队列
         if new_order_flag:
-            # 这里更常见的做法是，只发送增量数据，由消息订阅方自行聚合
+            # 假装这里没有查询数据库，而是直接发送增量数据到Kafka
             data = {"cnt": session.query(Order).count(), "amount": session.query(func.sum(Order.amount)).scalar()}
             self.redis_cli.publish(ORDER_CHANNEL, json.dumps(data))
 
